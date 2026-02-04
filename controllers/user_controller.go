@@ -16,7 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"golang.org/x/crypto/bcrypt" // ADD THIS
+	"golang.org/x/crypto/bcrypt"
 )
 
 
@@ -26,6 +26,7 @@ type RegisterRequest struct {
 	Name     string `json:"name" binding:"required"`
 	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required,min=6"`
+	Phone    string `json:"phone" binding:"required"` 
 }
 
 func RegisterUser(c *gin.Context) {
@@ -39,7 +40,9 @@ func RegisterUser(c *gin.Context) {
 	student := models.User{
 		Name:     request.Name,
 		Email:    request.Email,
+		Phone:    request.Phone,
 		Password: request.Password,
+		// Level will be set to "spark" in the service layer
 	}
 
 	err := servicesimpl.NewUserService().Register(student)
