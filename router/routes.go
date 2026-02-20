@@ -18,10 +18,12 @@ func RegisterRoutes(router *gin.Engine) {
 			"http://localhost:8001",
 			"http://localhost:8003",          // Admin panel
 			"http://127.0.0.1:8003",          // Admin alternative
+			"http://127.0.0.1:5500",          // VS Code alternative
 			"http://localhost:3000",          // React dev
 			"http://localhost:5500",          // VS Code
 			"https://edu-tech-v1-mu.vercel.app", // Live web app
 			"https://course-management-portal.vercel.app",
+			"https://upload.jaromind.com",
 			"https://jaromind.com",           // Your domain
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
@@ -52,6 +54,8 @@ func RegisterRoutes(router *gin.Engine) {
 	router.GET("/courses", controllers.GetAllCourses)
 	router.GET("/courses/:id", controllers.GetCourseByID)
 	router.GET("/courses/:id/stats", controllers.GetCourseStats)
+	router.GET("/courses/:id/reviews", controllers.GetCourseReviews)
+    router.GET("/courses/:id/rating", controllers.GetCourseRating)
 
 	// ======================
 	// PROTECTED USER ROUTES
@@ -60,11 +64,23 @@ func RegisterRoutes(router *gin.Engine) {
 	userProtected.Use(middleware.JWTAuthMiddleware())
 	{
 		userProtected.GET("/profile", controllers.GetProfile)
-		userProtected.POST("/enroll/:courseId", controllers.EnrollInCourse)
+		userProtected.POST("/enroll/:id", controllers.EnrollInCourse)
 		userProtected.GET("/enrollments", controllers.GetUserEnrollments)
-		userProtected.PUT("/courses/:courseId/progress", controllers.UpdateProgress)
-		userProtected.POST("/courses/:courseId/review", controllers.AddReview)
+		userProtected.PUT("/courses/:id/progress", controllers.UpdateProgress)
+
+		userProtected.POST("/courses/:id/review", controllers.CreateReview)
 	}
+
+	// ======================
+    // REVIEW-SPECIFIC PROTECTED ROUTES
+    // ======================
+    reviewProtected := router.Group("/reviews")
+    reviewProtected.Use(middleware.JWTAuthMiddleware())
+    {
+        reviewProtected.GET("/:reviewId", controllers.GetReview)
+        reviewProtected.PUT("/:reviewId", controllers.UpdateReview)
+        reviewProtected.DELETE("/:reviewId", controllers.DeleteReview)
+    }
 
 	// ======================
 	// ADMIN ROUTES

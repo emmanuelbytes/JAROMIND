@@ -103,15 +103,3 @@ type Enrollment struct {
 	CreatedAt        time.Time  `json:"createdAt" bson:"createdAt"`
 	UpdatedAt        time.Time  `json:"updatedAt" bson:"updatedAt"`
 }
-
-type Review struct {
-	ID         string    `json:"id" bson:"id"`
-	CourseID   string    `json:"courseId" bson:"courseId"`
-	UserID     string    `json:"userId" bson:"userId"`
-	Rating     int       `json:"rating" bson:"rating"`
-	Comment    string    `json:"comment" bson:"comment"`
-	UserName   string    `json:"userName" bson:"userName"`
-	UserAvatar string    `json:"userAvatar" bson:"userAvatar"`
-	CreatedAt  time.Time `json:"createdAt" bson:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt" bson:"updatedAt"`
-}

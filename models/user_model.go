@@ -9,6 +9,8 @@ type User struct {
 ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 Name      string             `bson:"name" json:"name"`
 Email     string             `bson:"email" json:"email"`
+Phone     string             `bson:"phone" json:"phone"`
+Level     string             `bson:"level" json:"level"`
 Password  string             `bson:"password" json:"-"`
 Code      string             `bson:"code,omitempty" json:"code,omitempty"`
 Verified  bool               `bson:"verified" json:"verified"`

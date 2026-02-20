@@ -435,91 +435,119 @@ func UpdateProgress(c *gin.Context) {
 }
 
 // AddReview - Add a course review
+// AddReview - Add a course review
 func AddReview(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
 
-	courseID := c.Param("courseId")
-	userID, exists := c.Get("userID")
-	
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
+    courseID := c.Param("courseId")
+    userID, exists := c.Get("userID")
+    
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+        return
+    }
 
-	// Check if user is enrolled
-	count, _ := getEnrollmentsCollection().CountDocuments(ctx, bson.M{"userId": userID, "courseId": courseID})
-	if count == 0 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Must be enrolled to review"})
-		return
-	}
+    // Check if user is enrolled
+    count, _ := getEnrollmentsCollection().CountDocuments(ctx, bson.M{"userId": userID, "courseId": courseID})
+    if count == 0 {
+        c.JSON(http.StatusForbidden, gin.H{"error": "Must be enrolled to review"})
+        return
+    }
 
-	var request struct {
-		Rating  int    `json:"rating" binding:"required,min=1,max=5"`
-		Comment string `json:"comment"`
-	}
+    var request struct {
+        Rating  int    `json:"rating" binding:"required,min=1,max=5"`
+        Comment string `json:"comment"`
+    }
 
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+    if err := c.ShouldBindJSON(&request); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-	userName := c.GetString("userName")
-	userAvatar := c.GetString("userAvatar")
+    userName := c.GetString("userName")
+    // userAvatar := c.GetString("userAvatar")
 
-	review := models.Review{
-		ID:         uuid.New().String(),
-		CourseID:   courseID,
-		UserID:     userID.(string),
-		Rating:     request.Rating,
-		Comment:    request.Comment,
-		UserName:   userName,
-		UserAvatar: userAvatar,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
+    userIDStr, ok := userID.(string)
+    if !ok {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+        return
+    }
 
-	_, err := getReviewsCollection().InsertOne(ctx, review)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add review"})
-		return
-	}
+    // Convert user ID string to ObjectID
+    userObjectID, err := primitive.ObjectIDFromHex(userIDStr)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
+        return
+    }
 
-	// Update course rating
-	updateCourseRating(courseID)
+    // Create review - CourseID is now a STRING, not ObjectID
+    review := models.Review{
+        ID:         primitive.NewObjectID(),
+        CourseID:   courseID, // Use string directly, not ObjectID
+        UserID:     userObjectID,
+        Rating:     request.Rating,
+        Comment:    request.Comment,
+        UserName:   userName,
+        Date:       time.Now(),
+        CreatedAt:  time.Now(),
+        UpdatedAt:  time.Now(),
+    }
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "Review added successfully",
-		"review":  review,
-	})
+    _, err = getReviewsCollection().InsertOne(ctx, review)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add review"})
+        return
+    }
+
+    // Update course rating
+    updateCourseRating(courseID)
+
+    c.JSON(http.StatusCreated, gin.H{
+        "message": "Review added successfully",
+        "review":  review,
+    })
 }
 
 // Helper function to recalculate course rating
 func updateCourseRating(courseID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
 
-	cursor, _ := getReviewsCollection().Find(ctx, bson.M{"courseId": courseID})
-	var reviews []models.Review
-	cursor.All(ctx, &reviews)
+    cursor, _ := getReviewsCollection().Find(ctx, bson.M{"course_id": courseID}) // Use string comparison
+    var reviews []models.Review
+    cursor.All(ctx, &reviews)
 
-	if len(reviews) == 0 {
-		return
-	}
+    if len(reviews) == 0 {
+        return
+    }
 
-	var totalRating int
-	for _, review := range reviews {
-		totalRating += review.Rating
-	}
+    var totalRating int
+    for _, review := range reviews {
+        totalRating += review.Rating
+    }
 
-	avgRating := float64(totalRating) / float64(len(reviews))
-	
-	getCoursesCollection().UpdateOne(ctx, bson.M{"id": courseID}, bson.M{
-		"$set": bson.M{
-			"rating":      avgRating,
-			"reviewCount": len(reviews),
-		},
-	})
+    avgRating := float64(totalRating) / float64(len(reviews))
+    
+    // Try to update by id field first (for UUIDs)
+    _, err := getCoursesCollection().UpdateOne(ctx, bson.M{"id": courseID}, bson.M{
+        "$set": bson.M{
+            "rating":      avgRating,
+            "reviewCount": len(reviews),
+        },
+    })
+    
+    // If not found by id, try by _id (for ObjectIDs)
+    if err != nil {
+        if objID, err2 := primitive.ObjectIDFromHex(courseID); err2 == nil {
+            getCoursesCollection().UpdateOne(ctx, bson.M{"_id": objID}, bson.M{
+                "$set": bson.M{
+                    "rating":      avgRating,
+                    "reviewCount": len(reviews),
+                },
+            })
+        }
+    }
 }
 
 // GetCourseStats - Get statistics for a course

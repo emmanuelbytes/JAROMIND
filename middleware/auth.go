@@ -101,10 +101,9 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 		}
 
 		// ✅ Save user info in Gin context
-		c.Set("user_id", userID)
-		c.Set("email", email)
-		c.Set("role", role)
-
+		c.Set("userID", userID)  // Change from "user_id" to "userID"
+		c.Set("userEmail", email)
+		c.Set("userRole", role)
 		c.Next()
 	}
 }

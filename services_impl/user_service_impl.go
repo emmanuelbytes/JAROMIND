@@ -1,4 +1,4 @@
-package servicesimpl
+package services_impl
 
 import (
 	"context"
@@ -58,7 +58,9 @@ func (s *userServiceImpl) Register(student models.User) error {
 		ID:        primitive.NewObjectID(),
 		Name:      student.Name,
 		Email:     student.Email,
+		Phone:     student.Phone,         // Added phone
 		Password:  string(hashedPassword),
+		Level:     "spark",     		  // Default level
 		Code:      code,
 		Verified:  false,
 		CreatedAt: time.Now(),
