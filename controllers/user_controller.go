@@ -75,9 +75,44 @@ func LoginUser(c *gin.Context) {
 		return
 	}
 
+	// Fetch user data from database
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := database.Client
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database not connected"})
+		return
+	}
+
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "emmanuelabara265_db_user"
+	}
+
+	db := client.Database(dbName)
+	usersCollection := db.Collection("students")
+
+	var user models.User
+	err = usersCollection.FindOne(ctx, bson.M{"email": request.Email}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
+		return
+	}
+
+	// Return token AND user data (matching frontend expectations)
 	c.JSON(200, gin.H{
+		"success": true,
 		"message": "Login successfully",
 		"token":   token,
+		"user": gin.H{
+			"id":    user.ID.Hex(),
+			"name":  user.Name,  // ✅ Real name from database
+			"email": user.Email,
+			"phone": user.Phone,
+			"level": user.Level,
+			"role":  "student",
+		},
 	})
 }
 
@@ -272,3 +307,4 @@ func contains(slice []string, item string) bool {
 	}
 	return false
 }
+
