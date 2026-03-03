@@ -296,7 +296,7 @@ func EnrollInCourse(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	courseID := c.Param("courseId")
+	courseID := c.Param("id") // Note: URL param is "id" not "courseId"
 	userID, exists := c.Get("userID")
 	
 	if !exists {
@@ -304,42 +304,77 @@ func EnrollInCourse(c *gin.Context) {
 		return
 	}
 
+	// Convert userID string to ObjectID
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	userObjectID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
 	// Check if course exists
-	var course models.Course
-	err := getCoursesCollection().FindOne(ctx, bson.M{"id": courseID, "isActive": true}).Decode(&course)
+	var course bson.M
+	err = getCoursesCollection().FindOne(ctx, bson.M{
+		"$or": []bson.M{
+			{"id": courseID},
+			{"_id": convertToObjectIDSafe(courseID)},
+		},
+		"isActive": true,
+	}).Decode(&course)
+	
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Course not found"})
 		return
 	}
 
 	// Check if already enrolled
-	count, _ := getEnrollmentsCollection().CountDocuments(ctx, bson.M{"userId": userID, "courseId": courseID})
+	count, _ := getEnrollmentsCollection().CountDocuments(ctx, bson.M{
+		"userId": userObjectID,
+		"courseId": courseID,
+	})
 	if count > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Already enrolled in this course"})
 		return
 	}
 
-	// Create enrollment
+	// Create enrollment using new enhanced model
 	enrollment := models.Enrollment{
-		ID:               uuid.New().String(),
-		UserID:           userID.(string),
+		ID:               primitive.NewObjectID(),
+		EnrollmentID:     uuid.New().String(),
+		UserID:           userObjectID,
 		CourseID:         courseID,
+		Status:           "active",
+		PaymentStatus:    "free",
 		EnrolledAt:       time.Now(),
 		LastAccessedAt:   time.Now(),
 		Progress:         0,
 		CompletedLessons: []string{},
+		TermsAccepted:    true,
+		CertificateIssued: false,
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
 	}
 
-	_, err = getEnrollmentsCollection().InsertOne(ctx, enrollment)
+	result, err := getEnrollmentsCollection().InsertOne(ctx, enrollment)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enroll in course"})
 		return
 	}
 
+	enrollment.ID = result.InsertedID.(primitive.ObjectID)
+
 	// Increment enrollment count
-	getCoursesCollection().UpdateOne(ctx, bson.M{"id": courseID}, bson.M{"$inc": bson.M{"enrollmentCount": 1}})
+	getCoursesCollection().UpdateOne(ctx, bson.M{
+		"$or": []bson.M{
+			{"id": courseID},
+			{"_id": convertToObjectIDSafe(courseID)},
+		},
+	}, bson.M{"$inc": bson.M{"enrollmentCount": 1}})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "Successfully enrolled",
@@ -347,7 +382,9 @@ func EnrollInCourse(c *gin.Context) {
 	})
 }
 
+
 // GetUserEnrollments - Get all courses user is enrolled in
+// GetUserEnrollments - Get all courses user is enrolled in (LEGACY)
 func GetUserEnrollments(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -359,7 +396,23 @@ func GetUserEnrollments(c *gin.Context) {
 		return
 	}
 
-	cursor, err := getEnrollmentsCollection().Find(ctx, bson.M{"userId": userID}, options.Find().SetSort(bson.D{{Key: "lastAccessedAt", Value: -1}}))
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	userObjectID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
+	cursor, err := getEnrollmentsCollection().Find(
+		ctx, 
+		bson.M{"userId": userObjectID}, 
+		options.Find().SetSort(bson.D{{Key: "lastAccessedAt", Value: -1}}),
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch enrollments"})
 		return
@@ -369,12 +422,18 @@ func GetUserEnrollments(c *gin.Context) {
 	var enrollments []models.Enrollment
 	cursor.All(ctx, &enrollments)
 
-	// Get course details for each enrollment
 	var enrollmentDetails []gin.H
 	for _, enrollment := range enrollments {
-		var course models.Course
-		err := getCoursesCollection().FindOne(ctx, bson.M{"id": enrollment.CourseID}).Decode(&course)
+		var course bson.M
+		err := getCoursesCollection().FindOne(ctx, bson.M{
+			"$or": []bson.M{
+				{"id": enrollment.CourseID},
+				{"_id": convertToObjectIDSafe(enrollment.CourseID)},
+			},
+		}).Decode(&course)
+		
 		if err == nil {
+			delete(course, "_id")
 			enrollmentDetails = append(enrollmentDetails, gin.H{
 				"enrollment": enrollment,
 				"course":     course,
@@ -393,11 +452,23 @@ func UpdateProgress(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	courseID := c.Param("courseId")
+	courseID := c.Param("id")
 	userID, exists := c.Get("userID")
 	
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	userObjectID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID format"})
 		return
 	}
 
@@ -420,19 +491,38 @@ func UpdateProgress(c *gin.Context) {
 		},
 	}
 
-	// If course is 100% complete
 	if request.Progress >= 100 {
 		update["$set"].(bson.M)["completedAt"] = time.Now()
+		update["$set"].(bson.M)["status"] = "completed"
 	}
 
-	_, err := getEnrollmentsCollection().UpdateOne(ctx, bson.M{"userId": userID, "courseId": courseID}, update)
+	result, err := getEnrollmentsCollection().UpdateOne(
+		ctx, 
+		bson.M{"userId": userObjectID, "courseId": courseID}, 
+		update,
+	)
+	
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update progress"})
 		return
 	}
 
+	if result.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Enrollment not found"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Progress updated successfully"})
 }
+
+func convertToObjectIDSafe(id string) primitive.ObjectID {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return primitive.NilObjectID
+	}
+	return objID
+}
+
 
 // AddReview - Add a course review
 // AddReview - Add a course review

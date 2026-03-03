@@ -90,16 +90,4 @@ type CurriculumItem struct {
 	Resources   []string `json:"resources,omitempty" bson:"resources,omitempty"`
 }
 
-type Enrollment struct {
-	ID               string     `json:"id" bson:"id"`
-	UserID           string     `json:"userId" bson:"userId"`
-	CourseID         string     `json:"courseId" bson:"courseId"`
-	EnrolledAt       time.Time  `json:"enrolledAt" bson:"enrolledAt"`
-	Progress         int        `json:"progress" bson:"progress"`
-	CompletedLessons []string   `json:"completedLessons" bson:"completedLessons"`
-	LastAccessedAt   time.Time  `json:"lastAccessedAt" bson:"lastAccessedAt"`
-	CompletedAt      *time.Time `json:"completedAt,omitempty" bson:"completedAt,omitempty"`
-	CertificateURL   string     `json:"certificateUrl,omitempty" bson:"certificateUrl,omitempty"`
-	CreatedAt        time.Time  `json:"createdAt" bson:"createdAt"`
-	UpdatedAt        time.Time  `json:"updatedAt" bson:"updatedAt"`
-}
+
