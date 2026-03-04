@@ -307,6 +307,7 @@ func GetEnrollmentByID(c *gin.Context) {
 }
 
 // GetUserEnrollmentsNew - Get current user's enrollments (alternative to existing one)
+// GetUserEnrollmentsNew - OPTIMIZED VERSION
 func GetUserEnrollmentsNew(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -361,25 +362,67 @@ func GetUserEnrollmentsNew(c *gin.Context) {
 		return
 	}
 
-	// Get course details for each enrollment
+	// ✅ OPTIMIZATION: Collect all course IDs first
+	courseIDs := make([]string, 0, len(enrollments))
+	courseObjectIDs := make([]primitive.ObjectID, 0, len(enrollments))
+	
+	for _, enrollment := range enrollments {
+		courseIDs = append(courseIDs, enrollment.CourseID)
+		if objID := convertToObjectID(enrollment.CourseID); objID != primitive.NilObjectID {
+			courseObjectIDs = append(courseObjectIDs, objID)
+		}
+	}
+
+	// ✅ OPTIMIZATION: Fetch ALL courses in ONE query (instead of N queries)
+	courseCursor, err := getCoursesCollection().Find(ctx, bson.M{
+		"$or": []bson.M{
+			{"id": bson.M{"$in": courseIDs}},
+			{"_id": bson.M{"$in": courseObjectIDs}},
+		},
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to fetch courses",
+		})
+		return
+	}
+	defer courseCursor.Close(ctx)
+
+	// ✅ Build a map for quick lookup
+	coursesMap := make(map[string]bson.M)
+	for courseCursor.Next(ctx) {
+		var course bson.M
+		if err := courseCursor.Decode(&course); err != nil {
+			continue
+		}
+		
+		// Map by both id and _id for flexibility
+		if id, ok := course["id"].(string); ok {
+			coursesMap[id] = course
+		}
+		if objID, ok := course["_id"].(primitive.ObjectID); ok {
+			coursesMap[objID.Hex()] = course
+		}
+	}
+
+	// ✅ Build enrollment summaries using the map (fast lookups!)
 	var enrollmentSummaries []models.EnrollmentSummary
 	for _, enrollment := range enrollments {
-		var course bson.M
-		err := getCoursesCollection().FindOne(ctx, bson.M{
-			"$or": []bson.M{
-				{"id": enrollment.CourseID},
-				{"_id": convertToObjectID(enrollment.CourseID)},
-			},
-		}).Decode(&course)
-
 		summary := models.EnrollmentSummary{
 			Enrollment: enrollment,
 		}
 
-		if err == nil {
-			// Remove MongoDB _id from response
-			delete(course, "_id")
+		// Look up course from map (O(1) instead of database query!)
+		if course, found := coursesMap[enrollment.CourseID]; found {
+			delete(course, "_id") // Remove MongoDB _id
 			summary.Course = course
+		} else if objID := convertToObjectID(enrollment.CourseID); objID != primitive.NilObjectID {
+			if course, found := coursesMap[objID.Hex()]; found {
+				delete(course, "_id")
+				summary.Course = course
+			}
 		}
 
 		enrollmentSummaries = append(enrollmentSummaries, summary)
