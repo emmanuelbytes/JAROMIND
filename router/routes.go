@@ -1,4 +1,4 @@
-// router/routes.go - UPDATED WITH ENROLLMENT ENDPOINTS
+// router/routes.go
 package router
 
 import (
@@ -46,18 +46,26 @@ func RegisterRoutes(router *gin.Engine) {
 	// ======================
 	// PUBLIC ROUTES
 	// ======================
-	
-	// Auth routes
+
+	// Auth
 	router.POST("/register", controllers.RegisterUser)
 	router.POST("/login", controllers.LoginUser)
 	router.POST("/admin/login", controllers.AdminLogin)
-	
+
 	// Public course routes
 	router.GET("/courses", controllers.GetAllCourses)
 	router.GET("/courses/:id", controllers.GetCourseByID)
 	router.GET("/courses/:id/stats", controllers.GetCourseStats)
 	router.GET("/courses/:id/reviews", controllers.GetCourseReviews)
 	router.GET("/courses/:id/rating", controllers.GetCourseRating)
+
+	// Public tutor routes
+	router.GET("/tutors", controllers.GetAllTutors)
+	router.GET("/tutors/:id", controllers.GetTutorByID)
+	router.GET("/tutors/:id/availability", controllers.GetTutorAvailability)
+
+	// Public tutor application (no auth needed to apply)
+	router.POST("/apply/tutor", controllers.SubmitTutorApplication)
 
 	// ======================
 	// PROTECTED USER ROUTES
@@ -67,22 +75,28 @@ func RegisterRoutes(router *gin.Engine) {
 	{
 		// User profile
 		userProtected.GET("/user/profile", controllers.GetProfile)
-		
-		// ✅ NEW ENROLLMENT ENDPOINTS (matches frontend)
-		userProtected.POST("/enrollments", controllers.CreateEnrollment)           // Main enrollment endpoint
-		userProtected.GET("/enrollments", controllers.GetUserEnrollmentsNew)        // Get user's enrollments
-		userProtected.GET("/enrollments/:id", controllers.GetEnrollmentByID)        // Get single enrollment
-		userProtected.PUT("/enrollments/:id/progress", controllers.UpdateEnrollmentProgress) // Update progress
-		userProtected.PUT("/enrollments/:id/status", controllers.UpdateEnrollmentStatus)     // Update status
-		userProtected.DELETE("/enrollments/:id", controllers.CancelEnrollment)      // Cancel enrollment
-		
-		// Legacy enrollment endpoint (keep for backward compatibility)
+
+		// Enrollment endpoints
+		userProtected.POST("/enrollments", controllers.CreateEnrollment)
+		userProtected.GET("/enrollments", controllers.GetUserEnrollmentsNew)
+		userProtected.GET("/enrollments/:id", controllers.GetEnrollmentByID)
+		userProtected.PUT("/enrollments/:id/progress", controllers.UpdateEnrollmentProgress)
+		userProtected.PUT("/enrollments/:id/status", controllers.UpdateEnrollmentStatus)
+		userProtected.DELETE("/enrollments/:id", controllers.CancelEnrollment)
+
+		// Legacy enrollment endpoints (backward compatibility)
 		userProtected.POST("/user/enroll/:id", controllers.EnrollInCourse)
 		userProtected.GET("/user/enrollments", controllers.GetUserEnrollments)
 		userProtected.PUT("/courses/:id/progress", controllers.UpdateProgress)
 
 		// Reviews
 		userProtected.POST("/courses/:id/review", controllers.CreateReview)
+
+		// Tutor Bookings
+		userProtected.POST("/bookings", controllers.CreateBooking)
+		userProtected.GET("/bookings", controllers.GetUserBookings)
+		userProtected.GET("/bookings/:id", controllers.GetBookingByID)
+		userProtected.DELETE("/bookings/:id", controllers.CancelBooking)
 	}
 
 	// ======================
@@ -107,33 +121,37 @@ func RegisterRoutes(router *gin.Engine) {
 		adminProtected.POST("/courses", controllers.CreateCourse)
 		adminProtected.PUT("/courses/:id", controllers.UpdateCourse)
 		adminProtected.DELETE("/courses/:id", controllers.DeleteCourse)
-		
-		// ✅ ADMIN ENROLLMENT MANAGEMENT
-		adminProtected.GET("/enrollments", controllers.GetAllEnrollments)           // Get all enrollments with filters
-		adminProtected.GET("/enrollments/:id", controllers.GetEnrollmentByID)       // Get single enrollment (admin view)
-		adminProtected.PUT("/enrollments/:id/status", controllers.UpdateEnrollmentStatus) // Update enrollment status
-		
-		// Future admin endpoints (uncomment when implemented)
-		/*
-		adminProtected.GET("/dashboard", controllers.GetAdminDashboard)
-		adminProtected.GET("/users", controllers.GetAllUsers)
-		adminProtected.GET("/analytics", controllers.GetAnalytics)
-		adminProtected.GET("/enrollments/stats", controllers.GetEnrollmentStats)
-		*/
+
+		// Enrollment management
+		adminProtected.GET("/enrollments", controllers.GetAllEnrollments)
+		adminProtected.GET("/enrollments/:id", controllers.GetEnrollmentByID)
+		adminProtected.PUT("/enrollments/:id/status", controllers.UpdateEnrollmentStatus)
+
+		// Tutor management
+		adminProtected.POST("/tutors", controllers.AdminCreateTutor)
+		adminProtected.PUT("/tutors/:id", controllers.AdminUpdateTutor)
+		adminProtected.DELETE("/tutors/:id", controllers.AdminDeleteTutor)
+
+		// Booking management
+		adminProtected.GET("/bookings", controllers.AdminGetAllBookings)
+		adminProtected.PUT("/bookings/:id/status", controllers.AdminUpdateBookingStatus)
+
+		// Tutor application review  ← fixed: moved inside adminProtected group
+		adminProtected.GET("/applications", controllers.AdminGetApplications)
+		adminProtected.GET("/applications/stats", controllers.AdminApplicationStats)
+		adminProtected.GET("/applications/:id", controllers.AdminGetApplication)
+		adminProtected.PUT("/applications/:id/review", controllers.AdminReviewApplication)
 	}
 
 	// ======================
-	// WEBHOOK ROUTES (for payment callbacks)
+	// WEBHOOK ROUTES
 	// ======================
 	webhook := router.Group("/webhook")
 	{
-		// These don't need authentication as they come from payment providers
-		// but should verify signatures/secrets
 		webhook.POST("/paystack", func(c *gin.Context) {
 			// TODO: Implement Paystack webhook handler
 			c.JSON(200, gin.H{"status": "received"})
 		})
-		
 		webhook.POST("/flutterwave", func(c *gin.Context) {
 			// TODO: Implement Flutterwave webhook handler
 			c.JSON(200, gin.H{"status": "received"})
